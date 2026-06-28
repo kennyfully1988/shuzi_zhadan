@@ -1,15 +1,15 @@
-# Number Bomb | Shuzi Zhadan | 数字炸弹
+# Num Bomb | Shuzi Zhadan | 数字炸弹
 [Live Demo | 实时演示](https://kennyfully1988.github.io/shuzi_zhadan/)
 
 ![Demo](./demo.gif)
 
-"Shuzi Zhadan" (数字炸弹), also known as "Number Bomb", is a classic number guessing game implemented as Wasm application. This project leverages WebAssembly (Wasm) for its core logic, demonstrating the integration of high-performance code directly within the browser environment. Players guess a number within a specified range, aiming to avoid a hidden "bomb" number.
+"Shuzi Zhadan" (数字炸弹), also known as "Num Bomb", is a classic number guessing game implemented as Wasm application. This project leverages WebAssembly (Wasm) for its core logic, demonstrating the integration of high-performance code directly within the browser environment. Players guess a number within a specified range, aiming to avoid a hidden "bomb" number.
 
 “数字炸弹”（Shuzi Zhadan）是一款经典的猜数字游戏，以 WebAssembly (Wasm) 应用程序的形式实现。该项目利用 WebAssembly (Wasm) 处理核心逻辑，展示了如何在浏览器环境中直接集成高性能代码。玩家需要在指定范围内猜一个数字，目标是避开那个隐藏的“炸弹”数字。
 
 ## Key Features & Benefits | 主要特点与优势
 
-*   **Interactive Web-Based Game:** Enjoy a classic "Number Bomb" guessing game directly in your web browser.
+*   **Interactive Web-Based Game:** Enjoy a classic "Num Bomb" guessing game directly in your web browser.
 *   **WebAssembly Powered:** Core game logic is implemented using WebAssembly, potentially offering performance advantages and efficient execution.
 *   **Simple User Interface:** A straightforward and intuitive user experience provided by `index.html`.
 *   **Client-Side Execution:** The application runs entirely on the client side, requiring no server-side dependencies for gameplay once loaded.
@@ -33,7 +33,7 @@ To run or develop this application, you will need the following:
 
 ## Installation & Setup Instructions | 安装与设置说明
 
-Follow these steps to get the `Shuzi Zhadan (Number Bomb)` application up and running on your local machine:
+Follow these steps to get the `Shuzi Zhadan (Num Bomb)` application up and running on your local machine:
 请按照以下步骤在本地计算机上运行 `数字炸弹` 应用程序：
 
 1.  **Clone the Repository | 克隆仓库:**
@@ -49,7 +49,7 @@ Follow these steps to get the `Shuzi Zhadan (Number Bomb)` application up and ru
     You can try opening the `index.html` file directly in your browser | 您可以尝试直接在浏览器中打开 `index.html` 文件。 (`file:///path/to/shuzi_zhadan/index.html`).
 
 3.  **Access the Game | 进入游戏:**
-    You should now see the "Shuzi Zhadan (Number Bomb)" game interface.
+    You should now see the "Shuzi Zhadan (Num Bomb)" game interface.
     现在你应该能看到“数字炸弹”的游戏界面了。
 
 ## License Information | 许可信息
