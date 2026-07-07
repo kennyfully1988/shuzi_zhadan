@@ -454,6 +454,654 @@
 		end
 	)
 
+	(func $draw_explosion
+    (param $width i32)
+    (param $height i32)
+    (param $cx i32)
+    (param $cy i32)
+    (param $time f32)      ;; Progress of explosion timeline (0.0 to 1.0)
+    (param $force f32)     ;; Outer expansion radius scaling factor
+    (param $noise_amt f32)  ;; Grain/Turbulence amplitude
+    (param $r i32)         ;; Base Red color (0-255)
+    (param $g i32)         ;; Base Green color (0-255)
+    (param $b i32)         ;; Base Blue color (0-255)
+    (param $a i32)         ;; Base Alpha opacity ceiling (0-255)
+
+    ;; Declare local variables
+    (local $x i32)
+    (local $y i32)
+    (local $pixel_idx i32)
+    
+    ;; Coordinate floating representation
+    (local $xf f32)
+    (local $yf f32)
+    (local $dxf f32)
+    (local $dyf f32)
+    (local $dist f32)
+    
+    ;; Core algorithm buffers
+    (local $radius f32)
+    (local $intensity f32)
+    (local $noise f32)
+    (local $rnd i32)
+    
+    ;; Computed thermal outputs
+    (local $core_heat i32)
+    (local $r_out i32)
+    (local $g_out i32)
+    (local $b_out i32)
+    (local $color_out i32)
+
+              ;; --- LOW-LEVEL ALPHA INTERPOLATING LERPs ---
+              (local $blend_alpha i32)
+              (local $inv_alpha i32)
+              (local $dst_color i32)
+              (local $r_dst i32)
+              (local $g_dst i32)
+              (local $b_dst i32)
+
+    ;; Calculate current expanded shockwave radius: radius = time * force * 180.0
+    local.get $time
+    local.get $force
+    f32.mul
+    f32.const 180.0
+    f32.mul
+    local.set $radius
+
+    ;; Initialize vertical loop counter (y = 0)
+    i32.const 0
+    local.set $y
+    
+    block $break_y
+      loop $loop_y
+        ;; Break condition: if y >= height, terminate grid operations
+        local.get $y
+        local.get $height
+        i32.ge_s
+        br_if $break_y
+
+        ;; yf = (float)y
+        local.get $y
+        f32.convert_i32_s
+        local.set $yf
+
+        ;; dyf = yf - cy
+        local.get $yf
+        local.get $cy
+        f32.convert_i32_s
+        f32.sub
+        local.set $dyf
+
+        ;; Initialize horizontal loop counter (x = 0)
+        i32.const 0
+        local.set $x
+        
+        block $break_x
+          loop $loop_x
+            ;; Break condition: if x >= width, proceed to next vertical line
+            local.get $x
+            local.get $width
+            i32.ge_s
+            br_if $break_x
+
+            ;; xf = (float)x
+            local.get $x
+            f32.convert_i32_s
+            local.set $xf
+
+            ;; dxf = xf - cx
+            local.get $xf
+            local.get $cx
+            f32.convert_i32_s
+            f32.sub
+            local.set $dxf
+
+            ;; Compute Pythagoras: dist = sqrt(dxf*dxf + dyf*dyf)
+            local.get $dxf
+            local.get $dxf
+            f32.mul
+            local.get $dyf
+            local.get $dyf
+            f32.mul
+            f32.add
+            f32.sqrt
+            local.set $dist
+
+            ;; Compute flat linear pixel index coordinate offset: pixel_idx = 4 * (y * width + x)
+            local.get $y
+            local.get $width
+            i32.mul
+            local.get $x
+            i32.add
+            i32.const 4
+            i32.mul
+            local.set $pixel_idx
+
+            ;; Generate procedural fast LCG pseudo-noise based on coordinates and timer:
+            ;; rnd = ((x * 12345 + y * 67890 + (time * 1000)_as_i32) * 1103515245 + 12345) & 0x7FFFFFFF
+            local.get $x
+            i32.const 12345
+            i32.mul
+            local.get $y
+            i32.const 67890
+            i32.mul
+            i32.add
+            local.get $time
+            f32.const 1000.0
+            f32.mul
+            i32.trunc_f32_s
+            i32.add
+            i32.const 1103515245
+            i32.mul
+            i32.const 12345
+            i32.add
+            i32.const 0x7fffffff
+            i32.and
+            local.set $rnd
+
+            ;; Normalize pseudo-random noise: noise = (float)rnd / 2147483647.0
+            local.get $rnd
+            f32.convert_i32_s
+            f32.const 2147483647.0
+            f32.div
+            local.set $noise
+
+            ;; Calculate Core Fireball Intensity:
+            ;; intensity = (1.0 - dist / (radius + 1)) * (1.0 - time)
+            local.get $dist
+            local.get $radius
+            f32.const 1.0
+            f32.add
+            f32.div
+            local.set $intensity
+
+            f32.const 1.0
+            local.get $intensity
+            f32.sub
+            f32.const 0.0
+            f32.max
+            f32.const 1.0
+            local.get $time
+            f32.sub
+            f32.mul
+            local.set $intensity
+
+            ;; Inject spiky noise turbulence at expanded limits
+            ;; intensity = intensity + (noise * noise_amt * (1.0 - time))
+            local.get $intensity
+            local.get $noise
+            local.get $noise_amt
+            f32.mul
+            f32.const 1.0
+            local.get $time
+            f32.sub
+            f32.mul
+            f32.add
+            local.set $intensity
+
+            ;; Overlay Gaussian Shockwave Ring:
+            ;; diff = (dist - radius) / 12.0
+            ;; ring = max(0.0, 1.0 - diff*diff) * 1.2 * (1.0 - time)
+            local.get $dist
+            local.get $radius
+            f32.sub
+            f32.const 12.0
+            f32.div
+            local.set $dxf ;; reuse coordinate register for algebraic shockwave scale
+            
+            f32.const 1.0
+            local.get $dxf
+            local.get $dxf
+            f32.mul
+            f32.sub
+            f32.const 0.0
+            f32.max
+            f32.const 1.2
+            f32.mul
+            f32.const 1.0
+            local.get $time
+            f32.sub
+            f32.mul
+            
+            local.get $intensity
+            f32.add
+            local.set $intensity
+
+            ;; Clamp final accumulated shader intensity limits
+            local.get $intensity
+            f32.const 0.0
+            f32.max
+            local.set $intensity
+
+            ;; Check cutoff threshold: skip blend loop if intensity <= 0.05
+            local.get $intensity
+            f32.const 0.05
+            f32.lt
+            if
+              ;; Do nothing, skip to keep background intact
+            else
+              ;; --- CALCULATE VOLUMETRIC GLOW CORE HEAT ---
+              ;; core_heat = intensity * intensity * 255
+              local.get $intensity
+              local.get $intensity
+              f32.mul
+              f32.const 255.0
+              f32.mul
+              i32.trunc_f32_s
+              local.set $core_heat
+
+              ;; --- CALCULATE DYNAMIC RGBA THERMAL CHANNELS ---
+              ;; Red channel: clamp(param_r * intensity + core_heat)
+              local.get $intensity
+              local.get $r
+              f32.convert_i32_s
+              f32.mul
+              i32.trunc_f32_s
+              local.get $core_heat
+              i32.add
+              local.set $r_out
+
+              local.get $r_out
+              i32.const 255
+              i32.gt_s
+              if
+                i32.const 255
+                local.set $r_out
+              end
+
+              ;; Green channel: clamp(param_g * intensity + core_heat)
+              local.get $intensity
+              local.get $g
+              f32.convert_i32_s
+              f32.mul
+              i32.trunc_f32_s
+              local.get $core_heat
+              i32.add
+              local.set $g_out
+
+              local.get $g_out
+              i32.const 255
+              i32.gt_s
+              if
+                i32.const 255
+                local.set $g_out
+              end
+
+              ;; Blue channel: clamp(param_b * intensity + core_heat)
+              local.get $intensity
+              local.get $b
+              f32.convert_i32_s
+              f32.mul
+              i32.trunc_f32_s
+              local.get $core_heat
+              i32.add
+              local.set $b_out
+
+              local.get $b_out
+              i32.const 255
+              i32.gt_s
+              if
+                i32.const 255
+                local.set $b_out
+              end
+
+
+              ;; blend_alpha = clamp(intensity * param_alpha)
+              local.get $intensity
+              local.get $a
+              f32.convert_i32_s
+              f32.mul
+              i32.trunc_f32_s
+              local.set $blend_alpha
+
+              local.get $blend_alpha
+              i32.const 255
+              i32.gt_s
+              if
+                i32.const 255
+                local.set $blend_alpha
+              end
+
+              ;; inv_alpha = 255 - blend_alpha
+              i32.const 255
+              local.get $blend_alpha
+              i32.sub
+              local.set $inv_alpha
+
+              ;; Load existing pixel value from memory grid offset
+              local.get $pixel_idx
+              i32.load
+              local.set $dst_color
+
+              ;; Extract background destination R, G, B channels
+              local.get $dst_color
+              i32.const 0xff
+              i32.and
+              local.set $r_dst
+
+              local.get $dst_color
+              i32.const 8
+              i32.shr_u
+              i32.const 0xff
+              i32.and
+              local.set $g_dst
+
+              local.get $dst_color
+              i32.const 16
+              i32.shr_u
+              i32.const 0xff
+              i32.and
+              local.set $b_dst
+
+              ;; Lerp calculations: blended = (src_color * alpha + dst_color * inv_alpha) / 255
+              local.get $r_out
+              local.get $blend_alpha
+              i32.mul
+              local.get $r_dst
+              local.get $inv_alpha
+              i32.mul
+              i32.add
+              i32.const 255
+              i32.div_u
+              local.set $r_out
+
+              local.get $g_out
+              local.get $blend_alpha
+              i32.mul
+              local.get $g_dst
+              local.get $inv_alpha
+              i32.mul
+              i32.add
+              i32.const 255
+              i32.div_u
+              local.set $g_out
+
+              local.get $b_out
+              local.get $blend_alpha
+              i32.mul
+              local.get $b_dst
+              local.get $inv_alpha
+              i32.mul
+              i32.add
+              i32.const 255
+              i32.div_u
+              local.set $b_out
+
+              ;; Re-pack blended channels to little-endian 32-bit RGBA (Alpha fully opaque 255)
+              local.get $r_out
+              local.get $g_out
+              i32.const 8
+              i32.shl
+              i32.or
+              local.get $b_out
+              i32.const 16
+              i32.shl
+              i32.const 255
+              i32.const 24
+              i32.shl
+              i32.or
+              i32.or
+              local.set $color_out
+
+              ;; Commit the final blended RGBA pixel back to graphics memory
+              local.get $pixel_idx
+              local.get $color_out
+              i32.store
+            end
+
+            ;; Increment horizontal position
+            local.get $x
+            i32.const 1
+            i32.add
+            local.set $x
+            br $loop_x
+          end
+        end
+
+        ;; Increment vertical position
+        local.get $y
+        i32.const 1
+        i32.add
+        local.set $y
+        br $loop_y
+      end
+    end
+  )
+
+	;; Define and export our main circle drawer function using flat syntax with alpha blending
+	(func $draw_circle 
+		(param $width     i32)
+		(param $height    i32)
+		(param $cx        i32)
+		(param $cy        i32)
+		(param $radius    i32)
+
+		(param $r         i32) ;; Source Red color (0-255)
+		(param $g         i32) ;; Source Green color (0-255)
+		(param $b         i32) ;; Source Blue color (0-255)
+		(param $a         i32) ;; Source Alpha (0-255)
+
+		(local $x         i32)
+		(local $y         i32)
+		(local $xmin      i32)
+		(local $xmax      i32)
+		(local $ymin      i32)
+		(local $ymax      i32)
+		(local $dx        i32)
+		(local $dy        i32)
+		(local $r2        i32) ;; radius squared
+		(local $dist2     i32) ;; distance squared
+		(local $pixel_idx i32)
+		(local $inv_a     i32) ;; Inverse Alpha (255 - a)
+		(local $dst_color i32) ;; Existing pixel loaded from shared memory
+		(local $r_dst     i32)
+		(local $g_dst     i32)
+		(local $b_dst     i32)
+		(local $r_out     i32)
+		(local $g_out     i32)
+		(local $b_out     i32)
+		(local $color_out i32)
+		;; Precalculate the inverse alpha value: inv_a = 255 - alpha
+		i32.const 255
+		local.get $a
+		i32.sub
+		local.set $inv_a
+		;; Precalculate the circle's radius squared (R^2)
+		local.get $radius
+		local.get $radius
+		i32.mul
+		local.set $r2
+		;; Calculate bounding box edges & clamp to viewport boundaries [0, width/height]
+		local.get $cx
+		local.get $radius
+		i32.sub
+		local.set $xmin
+		local.get $xmin
+		i32.const 0
+		i32.lt_s
+		if
+			i32.const 0
+			local.set $xmin
+		end
+		local.get $cx
+		local.get $radius
+		i32.add
+		local.set $xmax
+		local.get $xmax
+		local.get $width
+		i32.gt_s
+		if
+			local.get $width
+			local.set $xmax
+		end
+		local.get $cy
+		local.get $radius
+		i32.sub
+		local.set $ymin
+		local.get $ymin
+		i32.const 0
+		i32.lt_s
+		if
+			i32.const 0
+			local.set $ymin
+		end
+		local.get $cy
+		local.get $radius
+		i32.add
+		local.set $ymax
+		local.get $ymax
+		local.get $height
+		i32.gt_s
+		if
+			local.get $height
+			local.set $ymax
+		end
+		;; Initialize the outer vertical Y loop
+		local.get $ymin
+		local.set $y
+		block $break_y
+		  loop $loop_y
+		    ;; Condition: if y >= ymax, terminate row operations
+		    local.get $y
+		    local.get $ymax
+		    i32.ge_s
+		    br_if $break_y
+		    ;; Precalculate local delta Y: dy = y - cy
+		    local.get $y
+		    local.get $cy
+		    i32.sub
+		    local.set $dy
+		    ;; Initialize the inner horizontal X loop for current row
+		    local.get $xmin
+		    local.set $x
+		    block $break_x
+		      loop $loop_x
+		        ;; Condition: if x >= xmax, advance to next row
+		        local.get $x
+		        local.get $xmax
+		        i32.ge_s
+		        br_if $break_x
+		        ;; Calculate local delta X: dx = x - cx
+		        local.get $x
+		        local.get $cx
+		        i32.sub
+		        local.set $dx
+		        ;; Compute Euclidean distance squared: (dx * dx) + (dy * dy)
+		        local.get $dx
+		        local.get $dx
+		        i32.mul
+		        local.get $dy
+		        local.get $dy
+		        i32.mul
+		        i32.add
+		        local.set $dist2
+		        ;; If distance squared <= radius squared, we paint this pixel coordinate
+		        local.get $dist2
+		        local.get $r2
+		        i32.le_s
+		        if
+					;; Translate coordinates into linear memory address offset:
+					;; offset = 4 * (y * width + x)
+					local.get $y
+					local.get $width
+					i32.mul
+					local.get $x
+					i32.add
+					i32.const 4
+					i32.mul
+					local.set $pixel_idx
+					;; Load the existing destination background color
+					local.get $pixel_idx
+					i32.load
+					local.set $dst_color
+					;; Extract destination R, G, B channels
+					local.get $dst_color
+					i32.const 0xff
+					i32.and
+					local.set $r_dst
+					local.get $dst_color
+					i32.const 8
+					i32.shr_u
+					i32.const 0xff
+					i32.and
+					local.set $g_dst
+					local.get $dst_color
+					i32.const 16
+					i32.shr_u
+					i32.const 0xff
+					i32.and
+					local.set $b_dst
+					;; Blending Red channel: (r_src * alpha + r_dst * inv_alpha) / 255
+					local.get $r
+					local.get $a
+					i32.mul
+					local.get $r_dst
+					local.get $inv_a
+					i32.mul
+					i32.add
+					i32.const 255
+					i32.div_u
+					local.set $r_out
+					;; Blending Green channel: (g_src * alpha + g_dst * inv_alpha) / 255
+					local.get $g
+					local.get $a
+					i32.mul
+					local.get $g_dst
+					local.get $inv_a
+					i32.mul
+					i32.add
+					i32.const 255
+					i32.div_u
+					local.set $g_out
+					;; Blending Blue channel: (b_src * alpha + b_dst * inv_alpha) / 255
+					local.get $b
+					local.get $a
+					i32.mul
+					local.get $b_dst
+					local.get $inv_a
+					i32.mul
+					i32.add
+					i32.const 255
+					i32.div_u
+					local.set $b_out
+					;; Re-pack the blended output channels into 32-bit RGBA (Opaque Alpha 255)
+					local.get $r_out
+					local.get $g_out
+					i32.const 8
+					i32.shl
+					i32.or
+					local.get $b_out
+					i32.const 16
+					i32.shl
+					i32.const 255
+					i32.const 24
+					i32.shl
+					i32.or
+					i32.or
+					local.set $color_out
+					;; Store the blended 32-bit RGBA value directly to memory
+					local.get $pixel_idx
+					local.get $color_out
+					i32.store
+				end
+				;; Increment horizontal position
+				local.get $x
+				i32.const 1
+				i32.add
+				local.set $x
+				br $loop_x
+				end
+			end
+			;; Increment vertical position
+			local.get $y
+			i32.const 1
+			i32.add
+			local.set $y
+			br $loop_y
+			end
+		end
+	)
+
 	(func (export "render")
 		;; init system
 	    i32.const 450559 
@@ -859,6 +1507,30 @@
 		i32.const 320 ;; dw
 		i32.const 352 ;; dh
 		call $color_area
+
+		i32.const 320 ;; game_w
+		i32.const 352 ;; game_h
+		i32.const 160   ;; cx
+		i32.const 176   ;; cy
+		;; see if I can improve on this
+		f32.const 1.0 ;; use this as deom for time
+		f32.const 60 ;; time
+		i32.const 450953 ;; timer_60 
+	    i32.load8_u   ;; time
+		f32.convert_i32_u
+		f32.sub
+		f32.const 60 ;; time (use this to divide)
+		f32.div
+		f32.sub
+		;; see if I can improve on the above code
+		f32.const 1.5 ;; force
+		f32.const 0.7 ;; noise
+		i32.const 255 ;; r
+		i32.const 120 ;; g
+		i32.const 20 ;; b
+		i32.const 255 ;; a
+		call $draw_explosion
+
 		;; tap_to_play_zh
 		i32.const 4138160
 		i32.const 0   ;; dx
@@ -866,6 +1538,7 @@
 		i32.const 80  ;; dw
 		i32.const 32  ;; dh
 		call $render_widget
+
 		;; render_title
 		i32.const 451760
 		i32.const 0   ;; dx
@@ -873,6 +1546,19 @@
 		i32.const 320 ;; dw
 		i32.const 320 ;; dh
 		call $render_widget
+
+		;; todo work this into the game somehow
+		;; i32.const 320 ;; game_w
+		;; i32.const 352 ;; game_h
+		;; i32.const 64  ;; cir_w
+		;; i32.const 64  ;; cir_h
+		;; i32.const 32  ;; cir_r
+		;; i32.const 255 ;; r
+		;; i32.const 255 ;; g
+		;; i32.const 255 ;; b
+		;; i32.const 127 ;; a
+		;; call $draw_circle
+
 	)
 
 	(func $squ_col 
